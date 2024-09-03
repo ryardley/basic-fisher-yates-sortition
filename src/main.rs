@@ -2,7 +2,7 @@ fn main() {}
 
 #[cfg(test)]
 mod tests {
-    use std::char;
+    use std::{char, collections::HashSet, usize};
 
     use rand::{RngCore, SeedableRng};
     use rand_chacha::ChaCha20Rng;
@@ -36,12 +36,7 @@ mod tests {
     }
 
     // This simply requires length, cutoff, original_index and seed
-    fn is_selected_optimized(
-        len: usize,
-        cutoff: usize,
-        original_index: usize,
-        seed: u64,
-    ) -> bool {
+    fn is_selected_optimized(len: usize, cutoff: usize, original_index: usize, seed: u64) -> bool {
         let mut rng = ChaCha20Rng::seed_from_u64(seed);
         let mut current_index = original_index;
 
@@ -57,9 +52,45 @@ mod tests {
         current_index < cutoff
     }
 
+    fn is_selected_with_skip_list(
+        list_length: usize,
+        cutoff: usize,
+        original_index: usize,
+        skip_list: &[usize],
+        seed: u64,
+    ) -> bool {
+        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        let skip_set: HashSet<usize> = skip_list.iter().cloned().collect();
+
+        // If the original index is in the skip list, it can't be selected
+        if skip_set.contains(&original_index) {
+            return false;
+        }
+
+        // Create a vector of indices and shuffle it
+        let mut indices: Vec<usize> = (0..list_length).collect();
+        for i in (1..list_length).rev() {
+            let j = rng.next_u32() as usize % (i + 1);
+            indices.swap(i, j);
+        }
+
+        // Find the new position of our item of interest
+        let new_position = indices.iter().position(|&x| x == original_index).unwrap();
+
+        // Count non-skipped items before our item
+        let items_before = indices[0..new_position]
+            .iter()
+            .filter(|&&x| !skip_set.contains(&x))
+            .count();
+
+        // Our item is selected if the number of non-skipped items before it is less than the cutoff
+        items_before < cutoff
+    }
+
     #[test]
     fn test_shuffle() {
         let full_list: Vec<char> = vec!['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+        let skip_list: Vec<usize> = vec![1]; // B has been removed;
 
         let seed = 12345; // random seed
         let shuffled = fisher_yates_shuffle(&full_list, seed);
@@ -78,7 +109,7 @@ mod tests {
         );
 
         assert_eq!(
-            is_selected_optimized(10, cutoff, 0, seed),
+            is_selected_with_skip_list(full_list.len(), cutoff, 0, &skip_list, seed),
             false,
         );
 
@@ -89,8 +120,31 @@ mod tests {
         );
 
         assert_eq!(
-            is_selected_optimized(10, cutoff, 7, seed),
+            is_selected_with_skip_list(full_list.len(), cutoff, 7, &skip_list, seed),
             true,
+        );
+
+        // 'C' -> 5
+        assert_eq!(
+            is_selected_with_full_list(&full_list, cutoff, 2, seed),
+            false
+        );
+
+        assert_eq!(
+            is_selected_with_skip_list(full_list.len(), cutoff, 2, &skip_list, seed),
+            true, // NOTE this is included because B was skipped
+        );
+
+        // 'B' -> 1
+        assert_eq!(
+            is_selected_with_full_list(&full_list, cutoff, 1, seed),
+            true
+        );
+
+
+        assert_eq!(
+            is_selected_with_skip_list(full_list.len(), cutoff, 1, &skip_list, seed),
+            false, // Note 'B' is Skipped because it is in the skip list
         );
     }
 }
